@@ -1,9 +1,9 @@
-01_Elevation
+01 - Elevation
 ================
 [Sebastian T. Brinkmann](https://orcid.org/0000-0001-9835-7347)
 2022-09-29
 
-I used various environmental datasets in my bachelor thesis. For the
+I’ve used various environmental datasets in my bachelor thesis. For the
 analysis of visible greenspace I used a LiDAR derived Digital Surface
 Model (DSM) and Digital Terrain Model (DTM) at 1 m resolution for its
 proven ability to represent the above-ground elements and its accuracy
