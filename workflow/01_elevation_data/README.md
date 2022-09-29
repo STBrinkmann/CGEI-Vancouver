@@ -23,10 +23,6 @@ The DSM was than cleaned using a focal algortihm. Finally, all data has
 been merged to one raster image and cropped and masked to the study
 area.
 
-The final DSM and DTM are provided on Zenodo and is reccomended to
-locate both images in the following folder
-*“data/01_Elevation/02_processed/”.*
-
 ### Bibliography
 
 <div id="refs" class="references csl-bib-body hanging-indent">

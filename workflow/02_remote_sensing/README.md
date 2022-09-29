@@ -9,10 +9,6 @@ Vegetation Index (NDVI), (ii) Leaf Area Index (LAI), and (iii) Land Use
 Land Cover (LULC) (Markevych et al. 2017; Labib, Lindley, and Huck
 2020).
 
-The final NDVI, LAI, and LULC maps are provided on Zenodo and is
-reccomended to locate all images in the following folder
-*“data/02_RemoteSensing/02_processed/”.*
-
 ## NDVI and LAI
 
 Both NDVI and LAI were derived from a cloud-free Sentinel-2 L1C
