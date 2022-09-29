@@ -1,7 +1,5 @@
 packages_needed <- c(
-  "magrittr", "terra"
+  "magrittr", "terra", "sf", "dplyr", "kableExtra", "knitr"
 )
 
 packages_needed %in% installed.packages()[,1]
-library(terra)
-library(magrittr)
