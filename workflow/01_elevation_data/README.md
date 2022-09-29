@@ -25,7 +25,7 @@ area.
 
 The final DSM and DTM are provided on Zenodo and is reccomended to
 locate both images in the following folder
-*“data/01_Elevation/02_processed/”*
+*“data/01_Elevation/02_processed/”.*
 
 ### Bibliography
 
