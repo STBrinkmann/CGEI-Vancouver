@@ -1,0 +1,642 @@
+---
+title: "06 - Modelling"
+author: "[Sebastian T. Brinkmann](https://orcid.org/0000-0001-9835-7347)"
+date: "2022-10-12"
+knit: (
+  function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding,
+    output_file = "README.md") })
+output: 
+  github_document:
+    toc: true
+always_allow_html: true
+bibliography: ../references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE, eval = TRUE)
+knitr::opts_knit$set(root.dir = "../../")
+```
+
+## Libraries
+
+```{r}
+# Adjust to RAM available
+options(java.parameters = "-Xmx45g")
+library(bartMachine)
+
+library(tidyverse)
+library(sf)
+library(terra)
+library(tidymodels)
+
+library(psych)
+library(kableExtra)
+
+library(osmdata)
+library(DRIGLUCoSE)
+
+# Adjust to number of cores available
+set_bart_machine_num_cores(20)
+
+# Costum ggplot theme (https://rpubs.com/Koundy/71792)
+source(file.path("workflow", "theme_publication.R"))
+```
+
+## 1. Data
+
+Due to reassons of confidentiality the original data from the PURE study can not be made publicly available. In order to follow the statistical modelling, I have provided synthetical data here.
+
+**❗❗❗ NOTE ❗❗❗\
+The results of this document are based on synthetic data and can not be interpreted! See the results of the thesis for the original results.**
+
+### Synthetic sample data
+
+```{r}
+set.seed(123)
+
+pure_data <- tibble(
+  depress = sample(c(rep(0, 1171), rep(1, 436))),
+  age = sample(35:80, 1607, replace = TRUE),
+  smoker = sample(c("No", "Yes"), 1607, replace = TRUE),
+  AHEIScore = sample.int(60, 1607, replace = TRUE),
+  sex = sample(c("Male", "Female"), 1607, replace = TRUE),
+  householdIncome = sample(1:6, 1607, replace = TRUE),
+  alcohol =sample(c(rep(NA, 240), sample(15, 1367, replace = TRUE)))
+) %>% 
+  mutate(depress = factor(depress, levels = c(0, 1)),
+         smoker = factor(smoker, levels = c("No", "Yes")),
+         sex = factor(sex, levels = c("Male", "Female")))
+```
+
+Example of the `pure_data` tibble:
+
+```{r echo=FALSE}
+pure_data %>% 
+  head() %>% 
+  kbl() %>% 
+  kable_paper()
+```
+
+As the next step, geocraphic coordiantes will be assigned to pure_data by selecting random residential locations provided by OSM [@padgham2017].
+
+```{r}
+# Load AOI
+aoi <- sf::read_sf(file.path("data", "AOI.gpkg"))
+
+# Download residential areas from OSM
+osm_residential_raw <- aoi %>% 
+  st_transform(4326) %>% 
+  st_bbox() %>% 
+  osmdata::opq() %>% 
+  osmdata::add_osm_feature(key = "landuse", value = "residential") %>% 
+  osmdata::osmdata_sf() %>% 
+  pluck("osm_polygons") %>% 
+  st_transform(st_crs(aoi))
+
+# Intersect with AOI
+osm_residential_raw <- st_intersection(osm_residential_raw, aoi)
+
+# Sample
+set.seed(1234)
+osm_residential_sample <- st_sample(osm_residential_raw, 1607)
+
+# Combine with sythetic PURE data
+pure_sf <- st_as_sf(cbind(pure_data, osm_residential_sample))
+```
+
+### Exposure metrics
+
+Next we can load the exposure metric raster data and interesct the study data.
+
+```{r}
+# Load exposure metrics
+gavi <- rast(file.path("data", "03_ExposureIndices", "GAVI", "GAVI.tif"))
+gaci <- rast(file.path("data", "03_ExposureIndices", "GACI", "GACI.tif"))
+vgvi <- rast(file.path("data", "03_ExposureIndices", "VGVI", "VGVI.tif"))
+
+# Allign extents manually
+ext(gavi) <- ext(vgvi)
+ext(gaci) <- ext(vgvi)
+
+pure_final <- pure_sf %>% 
+  mutate(GAVI = terra::extract(gavi, .)[,2],
+         GACI = terra::extract(gaci, .)[,2],
+         VGVI = terra::extract(vgvi, .)[,2])
+```
+
+```{r echo=FALSE}
+pure_final %>% 
+  st_drop_geometry() %>% 
+  as_tibble() %>% 
+  head() %>% 
+  kbl() %>% 
+  kable_paper()
+```
+
+### Neighbourhood Socioeconomic Status modelling
+
+To account for the effects of neighbourhood Socioeconomic Status (SES) on mental health, I used a previously developed local SES model. Census data has been acquired from Statistics Canada at census Dissemiation Area (DA) level. In a recent study @walker2022, the authors presented a distance-weighted, road network-based model for quantifying neighbourhood SES. In order to estimate each participant's potential exposure to local SES, (i) age- and sex-specific walkable zones (hereinafter referred to as "isochrones") were mapped around their residential address, and (ii) a negative logit weighting function has been applied, so that the estimated effect of SES decreases as distance from the home increases.
+
+```{r}
+# Load Canada census dissimination areas (DA) of Vancouver
+census <- read_sf(file.path("data", "04_Modelling", "Census_2006_DA.gpkg"))
+```
+
+```{r echo=FALSE}
+specify_decimal <- function(x, k = 2) trimws(format(round(x, k), nsmall=k))
+
+census %>%
+  st_drop_geometry() %>% 
+  describe(skew = FALSE) %>% 
+  select(-c(vars, n, se, range)) %>% 
+  as_tibble() %>% 
+  mutate_all(specify_decimal) %>%
+  mutate(Variable = names(census)[-12]) %>% 
+  relocate(Variable, .before = mean) %>% 
+  kbl() %>% 
+  kable_paper()
+```
+
+#### (i) Isochrone computation
+
+In the study I used age- and sex-specific walking speeds (average male--female difference = 0.13 km/h; @dewulf2012) each participant's isochrones were calculated with a maximum of 20 minutes walking distance, in 2-minute increments. These isochrones were computed using the A\*-algorithm [@hart1968]. This resulted in each participant having ten concentric isochrones, the sizes of which are a function of individual walking speed and road network. The isochrone computation has been conducted using the `DRIGLUCoSE` R package [@walker2022].
+
+First, age- and sex-specific walking speeds are calculated.
+
+```{r}
+# Set walking speed from reference
+# https://ij-healthgeographics.biomedcentral.com/articles/10.1186/1476-072X-11-43
+pure_final <- pure_final %>% 
+  mutate(Speed = case_when(
+    # Female
+    sex == "Female" ~ case_when(
+      age %in% 18:30 ~ 4.77,
+      age %in% 31:40 ~ 4.79,
+      age %in% 41:50 ~ 4.71,
+      age %in% 51:60 ~ 4.72,
+      age %in% 61:70 ~ 4.37,
+      TRUE ~ 4.28      
+    ),
+    # Male
+    sex == "Male" ~ case_when(
+      age %in% 18:30 ~ 4.71,
+      age %in% 31:40 ~ 4.95,
+      age %in% 41:50 ~ 4.96,
+      age %in% 51:60 ~ 4.71,
+      age %in% 61:70 ~ 4.59,
+      TRUE ~ 4.49      
+    )
+  )) %>% 
+  # km/h -> m/s
+  mutate(Speed = Speed / 3.6 * 60) %>% 
+  mutate(ID = 1:n()) %>% 
+  relocate(ID, .before = depress)
+```
+
+In order to compute network-based distance metrics, street data from OpenStreetMap has been acquired using the R-package `osmdata` . Road types not suitable for walking were removed (e.g., motorways, trunks, and raceways). Network data were topologically corrected and split into \~20 metre-long segments using the R package `nngeo` (Michael Dorman ).
+
+```{r eval=FALSE}
+# Get data from OSM. Might take some minutes to download and process
+aoi.osm <- osm_roads(x = pure_final[1:12,],
+                     dist = 20, speed = "Speed",
+                     cores = 12, split_segments = TRUE,
+                     remove_features = c(
+                       "motorway", "motorway_link",
+                       "trunk", "trunk_link", "raceway"
+                     ))
+```
+
+Isochrones were calculated by first computing isodistances (streets with same walking distance) and than applying a 40 metre buffer on these line features.
+
+```{r eval=FALSE}
+aoi.isodistances <- isodistances(x = pure_final[1:12,],
+                                 road_network = aoi.osm,
+                                 tag = "ID", speed = "Speed",
+                                 isochrones_seq = seq(2, 20, 2),
+                                 cores = 12)
+
+aoi.isochrones <- isochrones(x = aoi.isodistances,
+                             tag = "ID", buffer = 40, cores = 12)
+```
+
+#### (ii) Distance-Weighting
+
+In order to account for the diminishing effect of SES as distance increases, I fitted a logit function to weight each incremental isochrone, such that the influence of a variable decreases with increasing distance from the household, i.e., features that are farther away have less influence than nearby features.
+
+```{r eval=FALSE}
+census_weighted <- census_weighting(isochrones = aoi.isochrones,
+                                    tag = "ID", census = census,
+                                    b = 8, m = 0.6, cores = 1)
+
+# Combine with pure_final
+pure_final <- inner_join(pure_final, census_weighted) %>%
+  select(-c(ID, Speed))
+```
+
+```{r echo=FALSE}
+pure_final <- read_sf(file.path("data", "04_Modelling", "pure_final.gpkg"))
+
+pure_final %>% 
+  st_drop_geometry() %>%
+  describe(skew = FALSE) %>% 
+  select(-c(vars, n, se, range)) %>% 
+  as_tibble() %>% 
+  mutate_all(specify_decimal) %>%
+  mutate(Variable = names(pure_final)[-20]) %>% 
+  relocate(Variable, .before = mean) %>% 
+  kbl() %>% 
+  kable_paper()
+```
+
+## Modelling
+
+**❗❗❗ NOTE ❗❗❗\
+The results of this document are based on synthetic data and can not be interpreted! See the results of the thesis for the original results.**
+
+The Measure of Sampling Adequacy of two SES variables were low with 0.28 and 0.55 for labour force participation rate and private dwellings - rented, respectively. Therefore, these variables have been removed.
+
+```{r eval=FALSE}
+pure_final <- pure_final %>% 
+  select(-c(Labour_Force_Participation_Rate, PD_Rented))
+```
+
+The data has been split in stratified subsets for training (80%; n = 1,284) and testing (20%; n = 323).
+
+```{r}
+pure_final <- pure_final %>% 
+  st_drop_geometry()
+
+
+set.seed(1234)
+data_split <- initial_split(pure_final, prop = 0.8, strata = depress)
+
+train <- training(data_split)
+test <- testing(data_split)
+
+# k-folds for in-sample statistics
+train_k_folds <- vfold_cv(train, v = 2, repeats = 2, strata = depress)
+```
+
+All factor variables (i.e. sex and smoking) were dummified (`step_dummy`). The daily alcohol consumption variable contained missing values (n = 240), therefore missing values have been imputed. As the feature contained high outlier values, median imputation has been applied (`step_impute_median`). To account for the class imbalance the oversampling technique SMOTE has been used (`step_smote`). All SES variables were normalised (`step_normalize`) and the Vancouver Socioeconomic Deprivation Index (VSDI) has been computed using PCA (`step_pca`) and rescaled from -1 to 1. The Composite Greenspace Exposure Index (CGEI) has been calculated using metric specific weigths (Section XX).
+
+```{r}
+ses_vars <- colnames(pure_final)[11:19]
+gs_vars <- colnames(pure_final)[8:10]
+
+# Metric specific weights
+w_GAVI = 0.35
+w_GACI = 0.75
+w_VGVI = 0.60
+
+# Base recipe
+rec <- recipes::recipe(depress ~ ., data = train) %>% 
+  # create dummy variables from categorical variables
+  recipes::step_dummy(recipes::all_nominal(), -recipes::all_outcomes()) %>% 
+  
+  # impute alcohol
+  recipes::step_impute_median(alcohol) %>% 
+  
+  # normalize SES variables that go into PCA
+  recipes::step_normalize(ses_vars) %>% 
+  
+  # upsampling 
+  themis::step_smote(depress, seed = 1234) %>%
+  
+  # PCA: VSDI
+  recipes::step_pca(ses_vars, num_comp = 1) %>% 
+  recipes::step_rename(VSDI = PC1) %>% 
+  recipes::step_range(VSDI, min = -1, max = 1) %>% 
+  
+  # CGEI
+  recipes::step_mutate(
+    CGEI = (GAVI*w_GAVI + GACI*w_GACI + VGVI*w_VGVI) / (w_GAVI+w_GACI+w_VGVI)
+  ) %>% 
+  recipes::step_range(CGEI, min = 1, max = 9)
+
+
+# Engine
+glm_model <- logistic_reg() %>% 
+  set_engine("glm")
+
+# Recipes for multivariable models
+rec_1 <- rec %>% step_rm(all_of(gs_vars))
+rec_2 <- rec %>% step_rm(all_of(gs_vars), AHEIScore, smoker_Yes, alcohol)
+```
+
+```{r echo=FALSE}
+or_table <- function(workflow) {
+  workflow %>% 
+    fit(pure_final) %>%
+    tidy(exponentiate = TRUE, conf.int = TRUE) %>%
+    filter(term != "(Intercept)") %>% 
+    mutate(p.value = specify_decimal(p.value, 3),
+           estimate = specify_decimal(estimate, 2),
+           conf.low = specify_decimal(conf.low, 2),
+           conf.high = specify_decimal(conf.high, 2)) %>% 
+    select(-c(3,4)) %>% 
+    select(1,2,4,5,3) %>% 
+    mutate(OR = paste0(
+        estimate, " (", conf.low, "-", conf.high, ", p",
+        ifelse(p.value <0.001, "<0.001", paste0("=", p.value)),
+        ")"
+    )) %>% 
+    select(1,6)
+}
+```
+
+### Bivariate Models
+
+```{r}
+glm_workflow <- workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(glm_model)
+
+glm_odds <- or_table(glm_workflow)
+bivariate_or <- glm_odds[0,]
+all_terms <- glm_odds$term
+
+for(t in all_terms){
+  rm_terms <- all_terms[!t == all_terms]
+  this_rec <- rec %>% step_rm(rm_terms)
+  
+  glm_workflow <- workflow() %>% 
+    add_recipe(this_rec) %>% 
+    add_model(glm_model)
+  
+  glm_odds <- or_table(glm_workflow)
+  
+  bivariate_or <- bivariate_or %>% 
+    add_row(glm_odds)
+}
+
+bivariate_or %>% 
+    kbl() %>% 
+    kable_paper()
+```
+
+### Multivariate Models
+
+#### Model 1 (full-adjusted)
+
+```{r}
+# Workflow
+glm_workflow <- workflow() %>% 
+  add_recipe(rec_1) %>% 
+  add_model(glm_model)
+
+# Odds Ratios
+or_table(glm_workflow) %>% 
+    kbl() %>% 
+    kable_paper()
+```
+
+#### Model 2 (semi-adjusted)
+
+```{r}
+# Workflow
+glm_workflow <- workflow() %>% 
+  add_recipe(rec_2) %>% 
+  add_model(glm_model)
+
+# Odds Ratios
+or_table(glm_workflow) %>% 
+    kbl() %>% 
+    kable_paper()
+```
+
+### In-sample and out-of-sample statistics
+
+#### In-sample statistics
+
+```{r}
+# Workflow of fully-adjusted model (Model 1)
+glm_workflow <- workflow() %>% 
+  add_recipe(rec_1) %>% 
+  add_model(glm_model)
+
+
+# in-sample Cross-Validation
+glm_res <- glm_workflow %>% 
+  fit_resamples(
+    resamples = train_k_folds,
+    metrics = metric_set(
+      accuracy, f_meas, j_index, roc_auc, sensitivity, specificity
+    ),
+    control = control_resamples(save_pred = TRUE)
+  )
+
+glm_res %>% 
+  collect_metrics() %>% 
+  select(.metric, mean) %>% 
+  spread(".metric", value = "mean") %>% 
+  rename(Accuracy = accuracy,
+         F1 = f_meas,
+         "Youden index" = j_index,
+         "ROC-AUC" = roc_auc,
+         Sensitivity = sensitivity,
+         Specificity = specificity
+  ) %>% 
+  mutate_all(specify_decimal) %>% 
+  kbl() %>% 
+  kable_paper()
+```
+
+#### Out-of-sample statistics
+
+```{r}
+# Out of sample performance
+set.seed(1234)
+glm_last_fit <- glm_workflow %>% 
+  last_fit(data_split)
+
+threshold_data <- glm_last_fit %>% 
+  collect_predictions() %>% 
+  probably::threshold_perf(depress, .pred_0, threshold = seq(0, 1, 0.01)) %>% 
+  filter(.metric != "distance")
+
+min_distace_threshold <- threshold_data %>%
+  filter(.metric == "j_index") %>%
+  filter(.estimate == max(.estimate)) %>%
+  pull(.threshold)
+```
+
+```{r echo=FALSE}
+min_distace_threshold = 0.46
+threshold_data %>%
+  ggplot(aes(x = .threshold, y = .estimate, colour = .metric)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_vline(xintercept = min_distace_threshold, alpha = .6, color = "grey10", lwd = 1) +
+  labs(
+    x = "Logistic Regression Threshold",
+    y = "Metric Estimate",
+    caption = "\nVertical line = Probability threshold with best Youden Index used for predicting Depression",
+    colour = "Metrics"
+  ) +
+  scale_colour_Publication(labels = c("Youden Index", "Sensitivity", "Specificity")) +
+  theme_Publication() +
+  theme(plot.caption = element_text(hjust = 0))
+```
+
+```{r echo=FALSE}
+threshold_data %>%
+  filter(.threshold > (min_distace_threshold-0.005) & .threshold < (min_distace_threshold+0.005)) %>% 
+  add_row(
+    glm_last_fit %>% 
+      collect_predictions() %>%
+      mutate(.pred_class = if_else(.pred_0 >= min_distace_threshold, 0, 1) %>% factor(levels = c(0, 1))) %>% 
+      accuracy(depress, .pred_class) %>% mutate(.threshold = min_distace_threshold)
+  ) %>% 
+  add_row(
+    glm_last_fit %>% 
+      collect_predictions() %>% 
+      roc_auc(depress, .pred_0) %>% mutate(.threshold = min_distace_threshold)
+  ) %>% 
+  mutate(.estimate = round(.estimate, 2)) %>%
+  select(-.estimator) %>% 
+  kbl() %>% 
+  kable_paper()
+```
+
+## CGEI
+
+**❗❗❗ NOTE ❗❗❗\
+The results of this document are based on synthetic data and can not be interpreted! See the results of the thesis for the original results.**
+
+### Weight combinations
+
+As of now, no recommendations are given for calculating CGEI in the context of mental health. Therefore, to estimate optimal weights of each exposure metric all combinations of w_GAVI, w_VGVI, and w_GACI were calculated on a regular grid from 0 to 1 within an interval of 0.025. This resulted in a total of 64,000 CGEI combinations.
+
+```{r eval=FALSE}
+library(foreach)
+library(doParallel)
+
+weight_step <- 0.1
+#length(seq(weight_step, 1, weight_step))^3
+
+
+registerDoParallel(cl <- makeCluster(12))
+step_i <- 0
+pb = pbmcapply::progressBar(min = 0, max = length(seq(weight_step, 1, weight_step))^2, initial = 0)
+out <- list()
+
+for(w_GAVI in seq(weight_step, 1, weight_step)){
+  for(w_GACI in seq(weight_step, 1, weight_step)) {
+    fe_glm_odds <- foreach(w_VGVI = seq(weight_step, 1, weight_step),
+                           .combine='rbind', .inorder=FALSE,
+                           .packages = c("magrittr", "tidymodels")) %dopar% {
+       # Recipe
+       rec <- recipes::recipe(depress ~ ., data = train) %>% 
+         # create dummy variables from categorical variables
+         recipes::step_dummy(recipes::all_nominal(), -recipes::all_outcomes()) %>% 
+         # impute alcohol
+         recipes::step_impute_median(alcohol) %>% 
+         # normalize SES variables that go into PCA
+         recipes::step_normalize(ses_vars) %>% 
+         # upsampling 
+         themis::step_smote(depress, seed = 1234) %>%
+         # PCA: VSDI
+         recipes::step_pca(ses_vars, num_comp = 1) %>% 
+         recipes::step_rename(VSDI = PC1) %>% 
+         recipes::step_range(VSDI, min = -1, max = 1) %>% 
+         # CGEI
+         recipes::step_mutate(
+           CGEI = (GAVI*w_GAVI + GACI*w_GACI + VGVI*w_VGVI) / (w_GAVI+w_GACI+w_VGVI)
+         ) %>% 
+         recipes::step_range(CGEI, min = 1, max = 9) %>% 
+         recipes::step_rm(gs_vars)
+       
+       # Engine
+       glm_model <- parsnip::logistic_reg() %>% 
+         parsnip::set_engine("glm")
+       
+       # Workflow
+       glm_workflow <- workflows::workflow() %>% 
+         workflows::add_recipe(rec) %>% 
+         workflows::add_model(glm_model)
+       
+       glm_odds <- glm_workflow %>%
+         parsnip::fit(pure_final) %>% 
+         tidy(exponentiate = TRUE, conf.int = TRUE) %>%
+         dplyr::filter(term != "(Intercept)") %>% 
+         dplyr::mutate(p.value = round(p.value, 3)) %>% 
+         dplyr::select(-c(3,4))
+       
+       glm_odds$w_GAVI <- w_GAVI
+       glm_odds$w_GACI <- w_GACI
+       glm_odds$w_VGVI <- w_VGVI
+       return(glm_odds)
+    }
+    
+    out[[length(out)+1]] <- fe_glm_odds
+    step_i <- step_i + 1
+    setTxtProgressBar(pb, step_i)
+  }
+}
+stopCluster(cl)
+
+w_out <- do.call(rbind, out)
+```
+
+```{r echo=FALSE}
+w_out <- read_csv(file.path("data", "04_Modelling", "CGEI_weights.csv"))
+
+psych::describe(w_out[w_out$term == "CGEI", ]$estimate, skew = FALSE) %>% 
+  select(-c(vars, n, se, range)) %>% 
+  as_tibble() %>% 
+  mutate_all(specify_decimal) %>%
+  mutate(Variable = "CGEI") %>% 
+  relocate(Variable, .before = mean) %>% 
+  kbl() %>% 
+  kable_paper()
+```
+
+#### BART
+
+To evaluate the combination with the strongest effects on \\gls{mde} symptoms, I then applied a BART [@chipman2010] model with the estimated OR as the dependent variable, and the three weights as independent variables.
+
+```{r}
+bart_data <- w_out %>% 
+  filter(term == "CGEI")
+
+bart_X <- bart_data %>% 
+  select(w_GAVI:w_VGVI) %>% 
+  as.data.frame()
+
+bart_y <- bart_data$estimate
+
+bm_all <- bartMachine(X = bart_X, y = bart_y, verbose = FALSE)
+summary(bm_all)
+```
+
+#### PDPs
+
+```{r}
+source("https://raw.githubusercontent.com/CHEST-Lab/BART_Covid-19/master/pdPlotGG.R")
+
+pdp_gavi <- pd_plotGGPLOT(bm_all, "w_GAVI", levs = seq(0.05, 0.95, 0.05)) +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), name = expression(w["GAVI"])) +
+  theme_Publication()
+
+pdp_vgvi <- pd_plotGGPLOT(bm_all, "w_VGVI", levs = seq(0.05, 0.95, 0.05)) +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), name = expression(w["VGVI"])) +
+  theme_Publication()
+
+pdp_gaci <- pd_plotGGPLOT(bm_all, "w_GACI", levs = seq(0.05, 0.95, 0.05)) +
+  scale_x_continuous(breaks = seq(0, 1, 0.1), name = expression(w["GACI"])) +
+  theme_Publication()
+```
+
+```{r echo=FALSE, fig.height=7.6, fig.width=4.7, fig.cap="ad"}
+library(ggpubr)
+ggarrange(
+  pdp_gavi, pdp_vgvi, pdp_gaci,
+  nrow = 3
+)
+```
+
+**❗❗❗ NOTE ❗❗❗\
+The results of this document are based on synthetic data and can not be interpreted! See the results of the thesis for the original results.**
+
+## Bibliography
