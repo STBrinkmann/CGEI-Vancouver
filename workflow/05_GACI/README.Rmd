@@ -1,0 +1,25 @@
+---
+title: "05 - Greenspace Accessibility Exposure Index (GACI)"
+author: "[Sebastian T. Brinkmann](https://orcid.org/0000-0001-9835-7347)"
+date: "2022-09-29"
+knit: (
+  function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding,
+    output_file = "README.md") })
+output: github_document
+always_allow_html: true
+bibliography: ../references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE, eval = TRUE)
+knitr::opts_knit$set(root.dir = "../../") 
+```
+
+In this study I have used the Greenspace Accessibility Exposure Index (GACI) to measure the access to public parks. It has been computed following a three-step method: First, access points to public parks have been identified. Second, for the complete study area walking distance has been calculated through network analysis, accounting not only for the distance, but also the size of surrounding parks. Finally, all values have been normalised to generate the GACI map.
+
+![](A_GACI.svg){width="159mm"}
+
+The network analysis has been conducted using a local instance of the OSRM routing engine [@luxen-vetter-2011]. It is recommended to launch a local instance of OSRM via Docker. Detailed instructions for installing Docker ([here](https://docs.docker.com/engine/install/)) and running a local instance of OSRM ([here](https://github.com/Project-OSRM/osrm-backend)) are provided online.
+
+### Bibliography
