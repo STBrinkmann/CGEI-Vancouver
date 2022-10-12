@@ -1,0 +1,70 @@
+---
+title: "02 - Remote Sensing"
+author: "[Sebastian T. Brinkmann](https://orcid.org/0000-0001-9835-7347)"
+date: "2022-09-29"
+knit: (
+  function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding,
+    output_file = "README.md") })
+output: github_document
+always_allow_html: true
+bibliography: ../references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE, eval = TRUE)
+knitr::opts_knit$set(root.dir = "../../") 
+```
+
+In this study I have used three different greenspace metrics that are commonly used in the existing literature, (i) Normalised Difference Vegetation Index (NDVI), (ii) Leaf Area Index (LAI), and (iii) Land Use Land Cover (LULC) [@markevych2017; @labib2020_review].
+
+## NDVI and LAI
+
+Both NDVI and LAI were derived from a cloud-free Sentinel-2 L1C satellite image (04.10.2015) which has been acquired through the [EO Browser](https://apps.sentinel-hub.com/eo-browser/) platform. Preprocessing to L2A-Level has been conducted using the Sen2Cor processor algorithm [@main-knorn2017]. NDVI was calculated at 10 m spatial resolution using the standard equation$$NDVI = \frac{NIR-RED}{NIR+RED}$$
+
+where $NIR$ refers to the near-infrared band and $RED$ refers to the visible red wavelengths [@drusch2012]. The LAI has been calculated at 10 m spatial resolution using the biophysical processor algorithm [@weiss2020].
+
+## LULC
+
+LULC data from 2014 has been acquired by @metro2014 at 2 m resolution and was reclassified to a binary greenspace raster, where tree canopy, shrub and grass represent green (value of 1) and other classes - including non-photosynthetic vegetation - indicate not-green (value of 0). Furthermore, a water mask has been derived from the LULC data to remove bluespaces like lakes, rivers or the sea from all greenspace metrics. Below I have listed the class values of the LULC data:
+
+```{r echo=FALSE, eval = TRUE}
+library(kableExtra)
+dplyr::tibble(
+    Value = 1:14,
+    "Level 1" = c(
+      "Built-up", "", "", "Bare", "", "Vegetation", 
+      "", "", "", "", "", "Water", "Shadow", "Clouds/Ice"
+    ),
+    "Level 2"  = c(
+      "Buildings", "Paved", "Other Built", "Barren", "Soil", "Tree canopy", 
+      "", "", "Grass-herb", "", "Non-photosynthetic vegetation", "", "", ""
+    ),
+    "Level 3" = c(
+      "", "", "", "", "", 
+      "Coniferous", "Deciduous", "Shrub", 
+      "Modified Grass-herb", "Natural Grass-herb", "", "", "", ""
+    ),
+    "Criteria" = c(
+      "Identified using shape/size, shadow cast, height, relative canopy height, texture.",
+      "Everything from sidewalks and alleys to highways.",
+      "Not concrete/asphalt built surfaces or building roofs. Sports surfaces (artificial turf and running tacks), possibly transit or rail areas, other impervious surfaces, etc.",
+      "Beaches, alpine rock, shoreline rock, etc. Lack of vegetation. Likely not soil (colour/context suggests no organic matter and/or imperviousness). Also quarries, gravel pits, dirt roads.",
+      "Agricultural soils (could be light or dark), cleared/open areas where darker colours indicate organic matter present (as compared to, e.g. sand), potentially riverine/alluvial deposits.",
+      "Predominantly coniferous (>75%)",
+      "Predominantly deciduous (>75%)",
+      "Woody, leafy, and generally rough-textured vegetation shorter than trees (approx. <3-4m), taller than grass.",
+      "Crops, golf course greens, city park grass, lawns, etc.",
+      "Alpine meadows, near-shore grass areas, bog/wetland areas.",
+      "Dead grass, drought stressed vegetation, could include log",
+      "Lakes, rivers, inlets, irrigation channels, retention ponds, pools, etc.",
+      "Dark pixels with low reflectance values. Image features not easily visible. Compare RapidEye image for shadow",
+      "Very bright pixels, that are not high-reflectance features from built-up areas."
+    )
+) %>% kbl(escape = FALSE, align=c("l", "c", "c", "c", "l"),
+          table.attr = "style='width:90%;'") %>% 
+  kable_classic("striped", full_width = F) %>%
+  row_spec(0, bold = T)
+```
+
+### Bibliography

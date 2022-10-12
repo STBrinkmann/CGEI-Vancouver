@@ -67,10 +67,10 @@ LULC <- terra::rast(file.path("data", "02_RemoteSensing", "01_raw", "LULC_2014.t
 names(LULC) <- "LULC"
 LULC[is.nan(LULC)] <- NA
 
-# Build binary Green- & Bluespace raster for Visibility Analysis
-(LULC %in% c(6:10, 12)) %>% 
+# Build binary Greenspace raster for Visibility Analysis
+(LULC %in% c(6:10)) %>% 
   terra::mask(aoi_mask) %>% 
-  terra::writeRaster(file.path("data", "02_RemoteSensing", "02_processed", "LULC_green_and_water.tif"), overwrite = TRUE)
+  terra::writeRaster(file.path("data", "02_RemoteSensing", "02_processed", "LULC_green.tif"), overwrite = TRUE)
 
 
 # Build binary Greenspace raster for Availability Analysis
