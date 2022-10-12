@@ -1,0 +1,22 @@
+---
+title: "01 - Elevation"
+author: "[Sebastian T. Brinkmann](https://orcid.org/0000-0001-9835-7347)"
+date: "2022-09-29"
+knit: (
+  function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding,
+    output_file = "README.md") })
+output: github_document
+bibliography: ../references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE, eval = FALSE)
+knitr::opts_knit$set(root.dir = "../../") 
+```
+
+I've used various environmental datasets in my bachelor thesis. For the analysis of visible greenspace I used a LiDAR derived Digital Surface Model (DSM) and Digital Terrain Model (DTM) at 1 m resolution for its proven ability to represent the above-ground elements and its accuracy in estimating surface visibility [@vanberkel2018]. The DSM has been used to account for ground surface objects like trees or buildings, and the DTM to represent the ground terrain. Both elevation models are publicly available [@natCan201].
+
+I have used elevation data from the "[High Resolution Digital Elevation Model (HRDEM) - CanElevation Series](https://open.canada.ca/data/en/dataset/957782bf-847c-4644-a757-e383c0057995)" product, which is derived from airborne LiDAR data for Vancouver. The data was first downloaded for all sub-regions (i.e. Vancouver, Burnaby, and Surrey) from a [FTP server](https://ftp.maps.canada.ca/pub/elevation/dem_mne/highresolution_hauteresolution/). The DSM was than cleaned using a focal algortihm. Finally, all data has been merged to one raster image and cropped and masked to the study area.
+
+### Bibliography
