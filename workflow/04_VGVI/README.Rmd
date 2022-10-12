@@ -1,0 +1,25 @@
+---
+title: "04 - Greenspace Visibility Exposure Index (VGVI)"
+author: "[Sebastian T. Brinkmann](https://orcid.org/0000-0001-9835-7347)"
+date: "2022-09-29"
+knit: (
+  function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding,
+    output_file = "README.md") })
+output: github_document
+always_allow_html: true
+bibliography: ../references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE, eval = TRUE)
+knitr::opts_knit$set(root.dir = "../../") 
+```
+
+In this study, I implemented the Greenspace Visibility Exposure Index (VGVI) [@labib2021a_visibility] to represent eye-level visibility of greenspaces. The VGVI expresses the ratio of visible greenspace to the total visible area an observer can see at a specific location. For that a viewshed analysis is conducted to estimate dichotomous visibility (e.g. visible, not visible). Visible areas are intersected with the LULC derived binary greenness raster (e.g. green, no-green), to calculate the proportion of visible greenspace to overall visible area. Finally, all values within the raster are summarised using a distance decay function to account for the reduced visual prominence of an object in space with increasing distance from the observer.
+
+Elevation data has been used in the viewshed analysis and the VGVI has been calculated for the complete study area on a regular point-based grid with 5 m intervals, except for when the point represents buildings or water (n = 16,243,938). After computation, the point grid has been aggregated to a continuous raster with 10 m spatial resolution using an Inverse Distance Weighting (IDW) interpolation algorithm. VGVI and the IDW interpolation were computed using the `GVI` R package [@brinkmann2022_GVI]. Total computation time with 22 CPU cores was 213 minutes, with an average of 17.3 milliseconds per point.
+
+![](A_VGVI.svg){width="159mm"}
+
+### Bibliography
