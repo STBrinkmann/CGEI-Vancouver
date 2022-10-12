@@ -23,6 +23,8 @@ installed from [GitHub](https://github.com/STBrinkmann/spatLac). The
 final GAVI map has been reclassified into 9 classes using the Jenks
 algortihm (Jenks 1977) from the `classInt` R package.
 
+<img src="A_GAVI.svg" style="width:159mm" />
+
 ### Bibliography
 
 <div id="refs" class="references csl-bib-body hanging-indent">

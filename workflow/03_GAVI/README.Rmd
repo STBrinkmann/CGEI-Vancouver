@@ -1,0 +1,25 @@
+---
+title: "03 - Greenspace Availability Exposure Index (GAVI)"
+author: "[Sebastian T. Brinkmann](https://orcid.org/0000-0001-9835-7347)"
+date: "2022-09-29"
+knit: (
+  function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding,
+    output_file = "README.md") })
+output: github_document
+always_allow_html: true
+bibliography: ../references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE, eval = TRUE)
+knitr::opts_knit$set(root.dir = "../../") 
+```
+
+In this study I have used the Greenspace Availability Exposure Index (GAVI) to measure the availability of greenspace. The GAVI combines three commonly used greenspace metrics (i.e. NDVI, LAI, and LULC) at five spatial scales (i.e., 50, 100, 200, 300, and 400 m buffer distance) as a multi-scale, multi-metric map. The three greenspace metrics represent different characteristics of photosynthetically active vegetation. Multiple spatial scales have been used as they (i) represent different ecosystem functions, and (ii) account for scale dependent statistical inference. The latter is also described as the Modifiable Areal Unit Problem (MAUP) [@openshaw1984; @fotheringham1991].
+
+To account for the MAUP @labib2020a_lacunarity suggest calculating *lacunarity* at multiple spatial scales and using the scale-specific lacunatiry values as weigths, to account for the reducing variance with increasing level of aggregation. Lacunarity has been calculated using the `SpatLac` R package [@brinkmann2021] that can be installed from [GitHub](https://github.com/STBrinkmann/spatLac). The final GAVI map has been reclassified into 9 classes using the Jenks algortihm [@jenks1977optimal] from the `classInt` R package.
+
+![](A_GAVI.svg){width="159mm"}
+
+### Bibliography
