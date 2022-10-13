@@ -19,7 +19,7 @@ product, which is derived from airborne LiDAR data for Vancouver. The
 data was first downloaded for all sub-regions (i.e. Vancouver, Burnaby,
 and Surrey) from a [FTP
 server](https://ftp.maps.canada.ca/pub/elevation/dem_mne/highresolution_hauteresolution/).
-The DSM was than cleaned using a focal algortihm. Finally, all data has
+The DSM was than cleaned using a focal algorithm. Finally, all data has
 been merged to one raster image and cropped and masked to the study
 area.
 
