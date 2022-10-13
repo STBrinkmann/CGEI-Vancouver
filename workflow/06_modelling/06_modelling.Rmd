@@ -45,7 +45,7 @@ source(file.path("workflow", "theme_publication.R"))
 
 ## 1. Data
 
-Due to reassons of confidentiality the original data from the PURE study can not be made publicly available. In order to follow the statistical modelling, I have provided synthetical data here.
+Due to reasons of confidentiality the original data can not be made publicly available. In order to follow the statistical modelling, I have provided synthetic data here.
 
 **❗❗❗ NOTE ❗❗❗\
 The results of this document are based on synthetic data and can not be interpreted! See the results of the thesis for the original results.**
@@ -55,7 +55,7 @@ The results of this document are based on synthetic data and can not be interpre
 ```{r}
 set.seed(123)
 
-pure_data <- tibble(
+data_raw <- tibble(
   depress = sample(c(rep(0, 1171), rep(1, 436))),
   age = sample(35:80, 1607, replace = TRUE),
   smoker = sample(c("No", "Yes"), 1607, replace = TRUE),
@@ -69,16 +69,16 @@ pure_data <- tibble(
          sex = factor(sex, levels = c("Male", "Female")))
 ```
 
-Example of the `pure_data` tibble:
+Example of the `data_raw` tibble:
 
 ```{r echo=FALSE}
-pure_data %>% 
+data_raw %>% 
   head() %>% 
   kbl() %>% 
   kable_paper()
 ```
 
-As the next step, geocraphic coordiantes will be assigned to pure_data by selecting random residential locations provided by OSM [@padgham2017].
+As the next step, geographic coordinates will be assigned to data_raw by selecting random residential locations provided by OSM [@padgham2017].
 
 ```{r}
 # Load AOI
@@ -101,13 +101,13 @@ osm_residential_raw <- st_intersection(osm_residential_raw, aoi)
 set.seed(1234)
 osm_residential_sample <- st_sample(osm_residential_raw, 1607)
 
-# Combine with sythetic PURE data
-pure_sf <- st_as_sf(cbind(pure_data, osm_residential_sample))
+# Combine with sythetic data
+sf_raw <- st_as_sf(cbind(data_raw, osm_residential_sample))
 ```
 
 ### Exposure metrics
 
-Next we can load the exposure metric raster data and interesct the study data.
+Next we can load the exposure metric raster data and intersect the study data.
 
 ```{r}
 # Load exposure metrics
@@ -119,14 +119,14 @@ vgvi <- rast(file.path("data", "03_ExposureIndices", "VGVI", "VGVI.tif"))
 ext(gavi) <- ext(vgvi)
 ext(gaci) <- ext(vgvi)
 
-pure_final <- pure_sf %>% 
+data_final <- sf_raw %>% 
   mutate(GAVI = terra::extract(gavi, .)[,2],
          GACI = terra::extract(gaci, .)[,2],
          VGVI = terra::extract(vgvi, .)[,2])
 ```
 
 ```{r echo=FALSE}
-pure_final %>% 
+data_final %>% 
   st_drop_geometry() %>% 
   as_tibble() %>% 
   head() %>% 
@@ -136,7 +136,7 @@ pure_final %>%
 
 ### Neighbourhood Socioeconomic Status modelling
 
-To account for the effects of neighbourhood Socioeconomic Status (SES) on mental health, I used a previously developed local SES model. Census data has been acquired from Statistics Canada at census Dissemiation Area (DA) level. In a recent study @walker2022, the authors presented a distance-weighted, road network-based model for quantifying neighbourhood SES. In order to estimate each participant's potential exposure to local SES, (i) age- and sex-specific walkable zones (hereinafter referred to as "isochrones") were mapped around their residential address, and (ii) a negative logit weighting function has been applied, so that the estimated effect of SES decreases as distance from the home increases.
+To account for the effects of neighbourhood Socioeconomic Status (SES) on mental health, I used a previously developed local SES model. Census data has been acquired from Statistics Canada at census Dissemination Area (DA) level. In a recent study @walker2022, the authors presented a distance-weighted, road network-based model for quantifying neighbourhood SES. In order to estimate each participant's potential exposure to local SES, (i) age- and sex-specific walkable zones (hereinafter referred to as "isochrones") were mapped around their residential address, and (ii) a negative logit weighting function has been applied, so that the estimated effect of SES decreases as distance from the home increases.
 
 ```{r}
 # Load Canada census dissimination areas (DA) of Vancouver
@@ -167,7 +167,7 @@ First, age- and sex-specific walking speeds are calculated.
 ```{r}
 # Set walking speed from reference
 # https://ij-healthgeographics.biomedcentral.com/articles/10.1186/1476-072X-11-43
-pure_final <- pure_final %>% 
+data_final <- data_final %>% 
   mutate(Speed = case_when(
     # Female
     sex == "Female" ~ case_when(
@@ -194,11 +194,11 @@ pure_final <- pure_final %>%
   relocate(ID, .before = depress)
 ```
 
-In order to compute network-based distance metrics, street data from OpenStreetMap has been acquired using the R-package `osmdata` . Road types not suitable for walking were removed (e.g., motorways, trunks, and raceways). Network data were topologically corrected and split into \~20 metre-long segments using the R package `nngeo` (Michael Dorman ).
+In order to compute network-based distance metrics, street data from OpenStreetMap has been acquired using the R-package `osmdata` . Road types not suitable for walking were removed (e.g., motorways, trunks, and raceways). Network data were topologically corrected and split into \~20 metre-long segments using the R package `nngeo` [@dorman2022].
 
 ```{r eval=FALSE}
 # Get data from OSM. Might take some minutes to download and process
-aoi.osm <- osm_roads(x = pure_final[1:12,],
+aoi.osm <- osm_roads(x = data_final[1:12,],
                      dist = 20, speed = "Speed",
                      cores = 12, split_segments = TRUE,
                      remove_features = c(
@@ -210,7 +210,7 @@ aoi.osm <- osm_roads(x = pure_final[1:12,],
 Isochrones were calculated by first computing isodistances (streets with same walking distance) and than applying a 40 metre buffer on these line features.
 
 ```{r eval=FALSE}
-aoi.isodistances <- isodistances(x = pure_final[1:12,],
+aoi.isodistances <- isodistances(x = data_final[1:12,],
                                  road_network = aoi.osm,
                                  tag = "ID", speed = "Speed",
                                  isochrones_seq = seq(2, 20, 2),
@@ -229,21 +229,21 @@ census_weighted <- census_weighting(isochrones = aoi.isochrones,
                                     tag = "ID", census = census,
                                     b = 8, m = 0.6, cores = 1)
 
-# Combine with pure_final
-pure_final <- inner_join(pure_final, census_weighted) %>%
+# Combine with data_final
+data_final <- inner_join(data_final, census_weighted) %>%
   select(-c(ID, Speed))
 ```
 
 ```{r echo=FALSE}
-pure_final <- read_sf(file.path("data", "04_Modelling", "pure_final.gpkg"))
+data_final <- read_sf(file.path("data", "04_Modelling", "data_final.gpkg"))
 
-pure_final %>% 
+data_final %>% 
   st_drop_geometry() %>%
   describe(skew = FALSE) %>% 
   select(-c(vars, n, se, range)) %>% 
   as_tibble() %>% 
   mutate_all(specify_decimal) %>%
-  mutate(Variable = names(pure_final)[-20]) %>% 
+  mutate(Variable = names(data_final)[-20]) %>% 
   relocate(Variable, .before = mean) %>% 
   kbl() %>% 
   kable_paper()
@@ -257,19 +257,19 @@ The results of this document are based on synthetic data and can not be interpre
 The Measure of Sampling Adequacy of two SES variables were low with 0.28 and 0.55 for labour force participation rate and private dwellings - rented, respectively. Therefore, these variables have been removed.
 
 ```{r eval=FALSE}
-pure_final <- pure_final %>% 
+data_final <- data_final %>% 
   select(-c(Labour_Force_Participation_Rate, PD_Rented))
 ```
 
 The data has been split in stratified subsets for training (80%; n = 1,284) and testing (20%; n = 323).
 
 ```{r}
-pure_final <- pure_final %>% 
+data_final <- data_final %>% 
   st_drop_geometry()
 
 
 set.seed(1234)
-data_split <- initial_split(pure_final, prop = 0.8, strata = depress)
+data_split <- initial_split(data_final, prop = 0.8, strata = depress)
 
 train <- training(data_split)
 test <- testing(data_split)
@@ -278,11 +278,11 @@ test <- testing(data_split)
 train_k_folds <- vfold_cv(train, v = 2, repeats = 2, strata = depress)
 ```
 
-All factor variables (i.e. sex and smoking) were dummified (`step_dummy`). The daily alcohol consumption variable contained missing values (n = 240), therefore missing values have been imputed. As the feature contained high outlier values, median imputation has been applied (`step_impute_median`). To account for the class imbalance the oversampling technique SMOTE has been used (`step_smote`). All SES variables were normalised (`step_normalize`) and the Vancouver Socioeconomic Deprivation Index (VSDI) has been computed using PCA (`step_pca`) and rescaled from -1 to 1. The Composite Greenspace Exposure Index (CGEI) has been calculated using metric specific weigths (Section XX).
+All factor variables (i.e. sex and smoking) were dummified (`step_dummy`). The daily alcohol consumption variable contained missing values (n = 240), therefore missing values have been imputed. As the feature contained high outlier values, median imputation has been applied (`step_impute_median`). To account for the class imbalance the oversampling technique SMOTE has been used (`step_smote`). All SES variables were normalised (`step_normalize`) and the Vancouver Socioeconomic Deprivation Index (VSDI) has been computed using PCA (`step_pca`) and rescaled from -1 to 1. The Composite Greenspace Exposure Index (CGEI) has been calculated using metric specific weights (Section [CGEI]).
 
 ```{r}
-ses_vars <- colnames(pure_final)[11:19]
-gs_vars <- colnames(pure_final)[8:10]
+ses_vars <- colnames(data_final)[11:19]
+gs_vars <- colnames(data_final)[8:10]
 
 # Metric specific weights
 w_GAVI = 0.35
@@ -327,7 +327,7 @@ rec_2 <- rec %>% step_rm(all_of(gs_vars), AHEIScore, smoker_Yes, alcohol)
 ```{r echo=FALSE}
 or_table <- function(workflow) {
   workflow %>% 
-    fit(pure_final) %>%
+    fit(data_final) %>%
     tidy(exponentiate = TRUE, conf.int = TRUE) %>%
     filter(term != "(Intercept)") %>% 
     mutate(p.value = specify_decimal(p.value, 3),
@@ -512,7 +512,8 @@ As of now, no recommendations are given for calculating CGEI in the context of m
 library(foreach)
 library(doParallel)
 
-weight_step <- 0.1
+# To reduce computation time, I have only used a step of 0.05 (n = 8,000)
+weight_step <- 0.05
 #length(seq(weight_step, 1, weight_step))^3
 
 
@@ -557,7 +558,7 @@ for(w_GAVI in seq(weight_step, 1, weight_step)){
          workflows::add_model(glm_model)
        
        glm_odds <- glm_workflow %>%
-         parsnip::fit(pure_final) %>% 
+         parsnip::fit(data_final) %>% 
          tidy(exponentiate = TRUE, conf.int = TRUE) %>%
          dplyr::filter(term != "(Intercept)") %>% 
          dplyr::mutate(p.value = round(p.value, 3)) %>% 
@@ -594,7 +595,7 @@ psych::describe(w_out[w_out$term == "CGEI", ]$estimate, skew = FALSE) %>%
 
 #### BART
 
-To evaluate the combination with the strongest effects on \\gls{mde} symptoms, I then applied a BART [@chipman2010] model with the estimated OR as the dependent variable, and the three weights as independent variables.
+To evaluate the combination with the strongest effects on MDE symptoms, I then applied a BART [@chipman2010] model with the estimated OR as the dependent variable, and the three weights as independent variables.
 
 ```{r}
 bart_data <- w_out %>% 

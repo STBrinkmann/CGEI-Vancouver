@@ -56,9 +56,9 @@ source(file.path("workflow", "theme_publication.R"))
 
 ## 1. Data
 
-Due to reassons of confidentiality the original data from the PURE study
-can not be made publicly available. In order to follow the statistical
-modelling, I have provided synthetical data here.
+Due to reasons of confidentiality the original data can not be made
+publicly available. In order to follow the statistical modelling, I have
+provided synthetic data here.
 
 **❗❗❗ NOTE ❗❗❗  
 The results of this document are based on synthetic data and can not be
@@ -69,7 +69,7 @@ interpreted! See the results of the thesis for the original results.**
 ``` r
 set.seed(123)
 
-pure_data <- tibble(
+data_raw <- tibble(
   depress = sample(c(rep(0, 1171), rep(1, 436))),
   age = sample(35:80, 1607, replace = TRUE),
   smoker = sample(c("No", "Yes"), 1607, replace = TRUE),
@@ -83,7 +83,7 @@ pure_data <- tibble(
          sex = factor(sex, levels = c("Male", "Female")))
 ```
 
-Example of the `pure_data` tibble:
+Example of the `data_raw` tibble:
 
 <table class=" lightable-paper" style="font-family: &quot;Arial Narrow&quot;, arial, helvetica, sans-serif; margin-left: auto; margin-right: auto;">
 <thead>
@@ -253,9 +253,9 @@ NA
 </tbody>
 </table>
 
-As the next step, geocraphic coordiantes will be assigned to pure_data
-by selecting random residential locations provided by OSM (Padgham et
-al. 2017).
+As the next step, geographic coordinates will be assigned to data_raw by
+selecting random residential locations provided by OSM (Padgham et al.
+2017).
 
 ``` r
 # Load AOI
@@ -278,13 +278,13 @@ osm_residential_raw <- st_intersection(osm_residential_raw, aoi)
 set.seed(1234)
 osm_residential_sample <- st_sample(osm_residential_raw, 1607)
 
-# Combine with sythetic PURE data
-pure_sf <- st_as_sf(cbind(pure_data, osm_residential_sample))
+# Combine with sythetic data
+sf_raw <- st_as_sf(cbind(data_raw, osm_residential_sample))
 ```
 
 ### Exposure metrics
 
-Next we can load the exposure metric raster data and interesct the study
+Next we can load the exposure metric raster data and intersect the study
 data.
 
 ``` r
@@ -297,7 +297,7 @@ vgvi <- rast(file.path("data", "03_ExposureIndices", "VGVI", "VGVI.tif"))
 ext(gavi) <- ext(vgvi)
 ext(gaci) <- ext(vgvi)
 
-pure_final <- pure_sf %>% 
+data_final <- sf_raw %>% 
   mutate(GAVI = terra::extract(gavi, .)[,2],
          GACI = terra::extract(gaci, .)[,2],
          VGVI = terra::extract(vgvi, .)[,2])
@@ -538,7 +538,7 @@ NA
 
 To account for the effects of neighbourhood Socioeconomic Status (SES)
 on mental health, I used a previously developed local SES model. Census
-data has been acquired from Statistics Canada at census Dissemiation
+data has been acquired from Statistics Canada at census Dissemination
 Area (DA) level. In a recent study Walker et al. (2022), the authors
 presented a distance-weighted, road network-based model for quantifying
 neighbourhood SES. In order to estimate each participant’s potential
@@ -781,7 +781,7 @@ First, age- and sex-specific walking speeds are calculated.
 ``` r
 # Set walking speed from reference
 # https://ij-healthgeographics.biomedcentral.com/articles/10.1186/1476-072X-11-43
-pure_final <- pure_final %>% 
+data_final <- data_final %>% 
   mutate(Speed = case_when(
     # Female
     sex == "Female" ~ case_when(
@@ -812,11 +812,11 @@ In order to compute network-based distance metrics, street data from
 OpenStreetMap has been acquired using the R-package `osmdata` . Road
 types not suitable for walking were removed (e.g., motorways, trunks,
 and raceways). Network data were topologically corrected and split into
-\~20 metre-long segments using the R package `nngeo` (Michael Dorman ).
+\~20 metre-long segments using the R package `nngeo` (Dorman 2022).
 
 ``` r
 # Get data from OSM. Might take some minutes to download and process
-aoi.osm <- osm_roads(x = pure_final[1:12,],
+aoi.osm <- osm_roads(x = data_final[1:12,],
                      dist = 20, speed = "Speed",
                      cores = 12, split_segments = TRUE,
                      remove_features = c(
@@ -830,7 +830,7 @@ same walking distance) and than applying a 40 metre buffer on these line
 features.
 
 ``` r
-aoi.isodistances <- isodistances(x = pure_final[1:12,],
+aoi.isodistances <- isodistances(x = data_final[1:12,],
                                  road_network = aoi.osm,
                                  tag = "ID", speed = "Speed",
                                  isochrones_seq = seq(2, 20, 2),
@@ -853,8 +853,8 @@ census_weighted <- census_weighting(isochrones = aoi.isochrones,
                                     tag = "ID", census = census,
                                     b = 8, m = 0.6, cores = 1)
 
-# Combine with pure_final
-pure_final <- inner_join(pure_final, census_weighted) %>%
+# Combine with data_final
+data_final <- inner_join(data_final, census_weighted) %>%
   select(-c(ID, Speed))
 ```
 
@@ -1216,7 +1216,7 @@ and 0.55 for labour force participation rate and private dwellings -
 rented, respectively. Therefore, these variables have been removed.
 
 ``` r
-pure_final <- pure_final %>% 
+data_final <- data_final %>% 
   select(-c(Labour_Force_Participation_Rate, PD_Rented))
 ```
 
@@ -1224,12 +1224,12 @@ The data has been split in stratified subsets for training (80%; n =
 1,284) and testing (20%; n = 323).
 
 ``` r
-pure_final <- pure_final %>% 
+data_final <- data_final %>% 
   st_drop_geometry()
 
 
 set.seed(1234)
-data_split <- initial_split(pure_final, prop = 0.8, strata = depress)
+data_split <- initial_split(data_final, prop = 0.8, strata = depress)
 
 train <- training(data_split)
 test <- testing(data_split)
@@ -1247,12 +1247,12 @@ oversampling technique SMOTE has been used (`step_smote`). All SES
 variables were normalised (`step_normalize`) and the Vancouver
 Socioeconomic Deprivation Index (VSDI) has been computed using PCA
 (`step_pca`) and rescaled from -1 to 1. The Composite Greenspace
-Exposure Index (CGEI) has been calculated using metric specific weigths
-(Section XX).
+Exposure Index (CGEI) has been calculated using metric specific weights
+(Section [CGEI](#cgei)).
 
 ``` r
-ses_vars <- colnames(pure_final)[11:19]
-gs_vars <- colnames(pure_final)[8:10]
+ses_vars <- colnames(data_final)[11:19]
+gs_vars <- colnames(data_final)[8:10]
 
 # Metric specific weights
 w_GAVI = 0.35
@@ -1787,7 +1787,8 @@ This resulted in a total of 64,000 CGEI combinations.
 library(foreach)
 library(doParallel)
 
-weight_step <- 0.1
+# To reduce computation time, I have only used a step of 0.05 (n = 8,000)
+weight_step <- 0.05
 #length(seq(weight_step, 1, weight_step))^3
 
 
@@ -1832,7 +1833,7 @@ for(w_GAVI in seq(weight_step, 1, weight_step)){
          workflows::add_model(glm_model)
        
        glm_odds <- glm_workflow %>%
-         parsnip::fit(pure_final) %>% 
+         parsnip::fit(data_final) %>% 
          tidy(exponentiate = TRUE, conf.int = TRUE) %>%
          dplyr::filter(term != "(Intercept)") %>% 
          dplyr::mutate(p.value = round(p.value, 3)) %>% 
@@ -1897,10 +1898,10 @@ CGEI
 
 #### BART
 
-To evaluate the combination with the strongest effects on \gls{mde}
-symptoms, I then applied a BART (Chipman, George, and McCulloch 2010)
-model with the estimated OR as the dependent variable, and the three
-weights as independent variables.
+To evaluate the combination with the strongest effects on MDE symptoms,
+I then applied a BART (Chipman, George, and McCulloch 2010) model with
+the estimated OR as the dependent variable, and the three weights as
+independent variables.
 
 ``` r
 bart_data <- w_out %>% 
@@ -1918,19 +1919,19 @@ summary(bm_all)
 
     ## bartMachine v1.2.6 for regression
     ## 
-    ## training data n = 1000 and p = 3 
-    ## built in 2.6 secs on 20 cores, 50 trees, 250 burn-in and 1000 post. samples
+    ## training data n = 9000 and p = 3 
+    ## built in 18.3 secs on 20 cores, 50 trees, 250 burn-in and 1000 post. samples
     ## 
     ## sigsq est for y beforehand: 0 
     ## avg sigsq estimate after burn-in: 0 
     ## 
     ## in-sample statistics:
-    ##  L1 = 1.43 
+    ##  L1 = 6.01 
     ##  L2 = 0.01 
     ##  rmse = 0 
-    ##  Pseudo-Rsq = 0.9773
+    ##  Pseudo-Rsq = 0.9963
     ## p-val for shapiro-wilk test of normality of residuals: 0 
-    ## p-val for zero-mean noise: 0.90389
+    ## p-val for zero-mean noise: 0.99304
 
 #### PDPs
 
@@ -1986,6 +1987,13 @@ Walking Times to Urban Destinations: Influence of Physical Activity,
 Neighbourhood Walkability, and Socio-Demographics.” *International
 Journal of Health Geographics* 11 (1): 43.
 <https://doi.org/10.1186/1476-072x-11-43>.
+
+</div>
+
+<div id="ref-dorman2022" class="csl-entry">
+
+Dorman, Michael. 2022. *Nngeo: K-Nearest Neighbor Join for Spatial
+Data*. <https://CRAN.R-project.org/package=nngeo>.
 
 </div>
 
